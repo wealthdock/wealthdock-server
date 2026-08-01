@@ -1,6 +1,6 @@
 # Multi-stage build for the wealthdock-server self-host deploy image.
 
-FROM python:3.12-slim AS builder
+FROM python:3.14-slim AS builder
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
@@ -18,7 +18,7 @@ COPY README.md ./
 RUN uv sync --no-dev --no-editable
 
 
-FROM python:3.12-slim AS runtime
+FROM python:3.14-slim AS runtime
 
 RUN groupadd --system app && useradd --system --gid app app
 
