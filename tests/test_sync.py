@@ -1,4 +1,4 @@
-"""Tests for the cross-device synchronization API."""
+"""Tests for the cross-device synchronization API and SyncState model."""
 
 import datetime
 import uuid
@@ -8,17 +8,53 @@ from typing import cast
 import pytest
 from httpx import ASGITransport, AsyncClient
 from jose import jwt  # type: ignore[import-untyped]
+from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm import sessionmaker
 
 from wealthdock_server.core.config import get_settings
 from wealthdock_server.db.base import Base
-from wealthdock_server.db.models import User
+from wealthdock_server.db.models import SyncState, User
 from wealthdock_server.db.session import get_db
 from wealthdock_server.main import app
 
 # Create in-memory SQLite engine and session factory for isolated testing
 test_engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
 test_session_factory = async_sessionmaker(test_engine, expire_on_commit=False, class_=AsyncSession)
+
+
+def test_sync_state_model_creation() -> None:
+    """Verify SyncState model attributes, relationships, and persistence."""
+    engine = create_engine("sqlite:///", echo=False)
+    Base.metadata.create_all(engine)
+    session_factory = sessionmaker(bind=engine)
+
+    # 1. Create a user and sync state
+    with session_factory() as session:
+        user = User(
+            email="sync_model@example.com",
+            hashed_password="hashed_secure_password",
+        )
+        session.add(user)
+        session.commit()
+        user_id = user.id
+
+        sync_state = SyncState(
+            user_id=user_id,
+            payload='{"assets": []}',
+            version=1,
+        )
+        session.add(sync_state)
+        session.commit()
+
+    # 2. Fetch and assert the created sync state record
+    with session_factory() as session:
+        queried = session.get(SyncState, user_id)
+        assert queried is not None
+        assert queried.user_id == user_id
+        assert queried.payload == '{"assets": []}'
+        assert queried.version == 1
+        assert isinstance(queried.updated_at, datetime.datetime)
 
 
 async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -66,6 +102,7 @@ async def seed_user(email: str) -> uuid.UUID:
         return user_id
 
 
+@pytest.mark.asyncio
 async def test_unauthenticated_sync_denied() -> None:
     """Verify that unauthenticated requests to the sync endpoint are blocked."""
     transport = ASGITransport(app=app)
@@ -74,6 +111,7 @@ async def test_unauthenticated_sync_denied() -> None:
         assert res.status_code == 401
 
 
+@pytest.mark.asyncio
 async def test_initial_sync_and_push() -> None:
     """Verify clean pull on empty DB and basic push capabilities for authenticated user."""
     email = "user@example.com"
@@ -114,6 +152,7 @@ async def test_initial_sync_and_push() -> None:
         assert data["changes"][0]["id"] == "uuid-1"
 
 
+@pytest.mark.asyncio
 async def test_user_data_isolation() -> None:
     """Verify that user A cannot see or modify user B's synced records."""
     # Seed two separate users
@@ -176,6 +215,7 @@ async def test_user_data_isolation() -> None:
         assert data_verify["changes"][0]["data"] == {"name": "User A Account"}
 
 
+@pytest.mark.asyncio
 async def test_sync_conflict_resolution_lww() -> None:
     """Verify that concurrent edits resolve using Last-Write-Wins based on timestamps."""
     email = "user@example.com"
@@ -247,6 +287,7 @@ async def test_sync_conflict_resolution_lww() -> None:
         }
 
 
+@pytest.mark.asyncio
 async def test_sync_since_filtering_on_server_time() -> None:
     """Verify that filtering runs on server_updated_at rather than client updated_at."""
     email = "user@example.com"
@@ -303,6 +344,7 @@ async def test_sync_since_filtering_on_server_time() -> None:
         assert changes[0]["id"] == "uuid-2"
 
 
+@pytest.mark.asyncio
 async def test_soft_deletion() -> None:
     """Verify that soft-deleted items are stored and returned as tombstones."""
     email = "user@example.com"
@@ -354,6 +396,7 @@ async def test_soft_deletion() -> None:
         assert changes[0]["deleted"] is True
 
 
+@pytest.mark.asyncio
 async def test_timestamp_clamping() -> None:
     """Verify client timestamps far in the future are clamped to server time."""
     email = "user@example.com"

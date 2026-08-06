@@ -7,6 +7,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from wealthdock_server.api.v1.auth import router as auth_router
+from wealthdock_server.api.v1.sync import router as sync_router
 from wealthdock_server.core.config import get_settings
 
 
@@ -44,8 +46,7 @@ def create_app() -> FastAPI:
         """Liveness check used by orchestrators/self-host deployments."""
         return {"status": "ok"}
 
-    from wealthdock_server.api.v1.sync import router as sync_router
-
+    app.include_router(auth_router, prefix="/api/v1/auth", tags=["auth"])
     app.include_router(sync_router, prefix="/api/v1")
 
     settings = get_settings()

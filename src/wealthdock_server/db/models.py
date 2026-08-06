@@ -4,10 +4,21 @@ import datetime
 import uuid
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, String, TypeDecorator, Uuid, func, true
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    String,
+    TypeDecorator,
+    Uuid,
+    func,
+    true,
+)
 from sqlalchemy.orm import Mapped, mapped_column, validates
 
 from wealthdock_server.db.base import Base
+from wealthdock_server.db.encryption import EncryptedString
 
 
 class TZDateTime(TypeDecorator[datetime.datetime]):
@@ -68,6 +79,24 @@ class User(Base):
         if value is not None:
             return value.lower().strip()
         return value
+
+
+class SyncState(Base):
+    """Stores sync payloads for a user to keep multiple devices consistent.
+
+    Uses EncryptedString so user financial data is encrypted at rest using MultiFernet.
+    """
+
+    __tablename__ = "sync_states"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    payload: Mapped[str] = mapped_column(EncryptedString, nullable=False)
+    version: Mapped[int] = mapped_column(default=1, nullable=False)
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        TZDateTime, default=utcnow, onupdate=utcnow, nullable=False
+    )
 
 
 class SyncRecord(Base):

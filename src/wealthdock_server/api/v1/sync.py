@@ -2,17 +2,23 @@
 
 import datetime
 import logging
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from wealthdock_server.api.v1.dependencies import get_current_user
-from wealthdock_server.db.models import SyncRecord, User
+from wealthdock_server.api.deps import get_current_user
+from wealthdock_server.db.models import SyncRecord, SyncState, User
 from wealthdock_server.db.session import get_db
-from wealthdock_server.schemas.sync import SyncItemSchema, SyncRequest, SyncResponse
+from wealthdock_server.schemas.sync import (
+    DEFAULT_SYNC_PAYLOAD,
+    SyncItemSchema,
+    SyncPayload,
+    SyncRequest,
+    SyncResponse,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -93,34 +99,77 @@ async def process_changes(
                 db_record.server_updated_at = server_sync_point
 
 
-@router.post("", response_model=SyncResponse)
-async def sync(
-    payload: SyncRequest,
-    current_user: User = Depends(get_current_user),  # noqa: B008
-    db: AsyncSession = Depends(get_db),  # noqa: B008
-) -> SyncResponse:
-    """Sync changes from and to the client.
+@router.get("", response_model=SyncPayload)
+async def get_sync_state(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> SyncPayload:
+    """Retrieve the user's synced assets and configurations."""
+    result = await db.execute(select(SyncState).where(SyncState.user_id == current_user.id))
+    sync_state = result.scalar_one_or_none()
+    if not sync_state:
+        return SyncPayload(payload=DEFAULT_SYNC_PAYLOAD, version=0)
+    return SyncPayload(payload=sync_state.payload, version=sync_state.version)
 
-    Processes incoming local changes using a Last-Write-Wins (LWW) conflict
-    resolution based on timestamps, commits them, and returns all records
-    updated since the client's last sync point (`since`).
-    """
+
+@router.post("", response_model=None)
+async def sync(
+    payload_in: dict[str, Any],
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Any:
+    """Synchronize user data supporting whole-state and per-record sync."""
+    if "payload" in payload_in and "version" in payload_in:
+        sync_payload = SyncPayload.model_validate(payload_in)
+        result = await db.execute(
+            select(SyncState).where(SyncState.user_id == current_user.id).with_for_update()
+        )
+        sync_state = result.scalar_one_or_none()
+
+        if not sync_state:
+            if sync_payload.version != 0:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="State conflict: version mismatch. No state found, expected version 0.",
+                )
+            sync_state = SyncState(user_id=current_user.id, payload=sync_payload.payload, version=1)
+            db.add(sync_state)
+            try:
+                await db.commit()
+            except IntegrityError as e:
+                await db.rollback()
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="State conflict: concurrent modification during initialization.",
+                ) from e
+        else:
+            if sync_state.version != sync_payload.version:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="State conflict: version mismatch. Please fetch latest state and merge.",
+                )
+            sync_state.payload = sync_payload.payload
+            sync_state.version += 1
+            await db.commit()
+
+        await db.refresh(sync_state)
+        return SyncPayload(payload=sync_state.payload, version=sync_state.version)
+
+    # Per-record LWW sync
+    sync_req = SyncRequest.model_validate(payload_in)
     server_sync_point = datetime.datetime.now(datetime.UTC)
 
-    # 1. Process client writes with concurrency/IntegrityError retry handling
-    if payload.changes:
+    if sync_req.changes:
         try:
-            await process_changes(payload.changes, current_user.id, db, server_sync_point)
+            await process_changes(sync_req.changes, current_user.id, db, server_sync_point)
             await db.commit()
         except IntegrityError:
             await db.rollback()
-            # Retry processing which refreshes existing maps and applies LWW correctly
-            await process_changes(payload.changes, current_user.id, db, server_sync_point)
+            await process_changes(sync_req.changes, current_user.id, db, server_sync_point)
             await db.commit()
 
-    # 2. Query changes to pull since client's last sync point
-    if payload.since is not None:
-        since_time = payload.since
+    if sync_req.since is not None:
+        since_time = sync_req.since
         if since_time.tzinfo is None:
             since_time = since_time.replace(tzinfo=datetime.UTC)
         else:
@@ -133,20 +182,17 @@ async def sync(
     else:
         stmt_pull = select(SyncRecord).where(SyncRecord.user_id == current_user.id)
 
-    # Apply paging and sorting
     stmt_pull = stmt_pull.order_by(SyncRecord.server_updated_at.asc()).limit(PAGE_LIMIT)
 
     result_pull = await db.execute(stmt_pull)
     db_changes = result_pull.scalars().all()
 
-    # If paging is active, adjust returned sync point to allow sequential sync catches
     if len(db_changes) == PAGE_LIMIT:
         last_item_time = db_changes[-1].server_updated_at
         if last_item_time.tzinfo is None:
             last_item_time = last_item_time.replace(tzinfo=datetime.UTC)
         server_sync_point = last_item_time
 
-    # Format response changes
     changes_to_return: list[SyncItemSchema] = []
     for item in db_changes:
         item_updated_at = item.updated_at

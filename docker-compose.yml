@@ -29,6 +29,7 @@ services:
         condition: service_healthy
     environment:
       - DATABASE_URL=postgresql+asyncpg://wealthdock:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/wealthdock
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:?set ENCRYPTION_KEY in .env}
     command: alembic upgrade head
 
   app:
@@ -51,6 +52,7 @@ services:
       - JWT_ALGORITHM=${JWT_ALGORITHM:-HS256}
       - JWT_ACCESS_TOKEN_EXPIRE_MINUTES=${JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-60}
       - CORS_ORIGINS=${CORS_ORIGINS:?set CORS_ORIGINS in .env}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:?set ENCRYPTION_KEY in .env}
     healthcheck:
       test: [
         "CMD",
