@@ -160,3 +160,35 @@ def test_cors_origins_parsing() -> None:
     # 3. List of strings
     s3 = Settings(cors_origins=["http://localhost:3000"], encryption_keys=[fernet_key])
     assert s3.cors_origins == ["http://localhost:3000"]
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("http://localhost:3000", ["http://localhost:3000"]),
+        (
+            "http://localhost:3000,https://app.wealthdock.com",
+            ["http://localhost:3000", "https://app.wealthdock.com"],
+        ),
+        (
+            '["http://localhost:3000", "https://app.wealthdock.com"]',
+            ["http://localhost:3000", "https://app.wealthdock.com"],
+        ),
+    ],
+)
+def test_cors_origins_parsed_from_environment(
+    monkeypatch: pytest.MonkeyPatch, raw: str, expected: list[str]
+) -> None:
+    """Verify CORS_ORIGINS is read from the environment, as docker-compose supplies it.
+
+    Constructing Settings(...) directly bypasses EnvSettingsSource, so this goes
+    through the environment to pin the form self-hosters actually use.
+    """
+    from wealthdock_server.core.config import Settings
+
+    monkeypatch.setenv("CORS_ORIGINS", raw)
+    monkeypatch.setenv("ENCRYPTION_KEY", Fernet.generate_key().decode())
+
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+
+    assert settings.cors_origins == expected

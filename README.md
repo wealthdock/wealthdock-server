@@ -69,7 +69,7 @@ All settings are configured via environment variables. Create a `.env` file in t
 - `JWT_ALGORITHM`: Signature algorithm (defaults to `HS256`).
 - `JWT_ACCESS_TOKEN_EXPIRE_MINUTES`: Expiry duration for authentication tokens (defaults to `60`).
 - `CORS_ORIGINS`: Allowed origins (required), passed as a comma-separated list (e.g. `http://localhost:3000,https://app.wealthdock.com`) or JSON array.
-- `ENCRYPTION_KEY`: 32-byte URL-safe base64 key for encrypting sensitive data at rest.
+- `ENCRYPTION_KEY`: 32-byte URL-safe base64 key for encrypting sensitive data at rest (required; both the app and the migration step fail to start without it).
 
 ## Key Management & Encryption
 

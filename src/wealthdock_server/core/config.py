@@ -10,8 +10,11 @@ if TYPE_CHECKING:
     CorsOriginsType = list[str]
     EncryptionKeysType = list[str]
 else:
-    CorsOriginsType = list[str] | str
+    # At runtime the union keeps pydantic-settings from treating these as
+    # "complex" fields, which would make it JSON-decode the raw environment
+    # value in EnvSettingsSource before any validator runs.
     EncryptionKeysType = list[str] | str
+    CorsOriginsType = list[str] | str
 
 
 class Settings(BaseSettings):
@@ -31,6 +34,7 @@ class Settings(BaseSettings):
     log_level: str = "info"
 
     database_url: str = "postgresql+asyncpg://wealthdock:wealthdock@localhost:5432/wealthdock"
+    redis_url: str | None = None
 
     jwt_secret: str = "change-me-in-production"
     jwt_algorithm: str = "HS256"
