@@ -5,11 +5,14 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from wealthdock_server.api.v1.auth import router as auth_router
 from wealthdock_server.api.v1.sync import router as sync_router
 from wealthdock_server.core.config import get_settings
+from wealthdock_server.core.limiter import limiter
 
 
 @asynccontextmanager
@@ -40,6 +43,9 @@ def create_app() -> FastAPI:
         version="0.1.0",
         lifespan=lifespan,
     )
+
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 
     @app.get("/health")
     async def health() -> dict[str, str]:

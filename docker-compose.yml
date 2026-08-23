@@ -29,7 +29,6 @@ services:
         condition: service_healthy
     environment:
       - DATABASE_URL=postgresql+asyncpg://wealthdock:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/wealthdock
-      # alembic/env.py builds Settings, which requires a valid ENCRYPTION_KEY.
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:?set ENCRYPTION_KEY in .env}
     command: alembic upgrade head
 

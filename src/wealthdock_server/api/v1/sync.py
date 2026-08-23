@@ -4,12 +4,13 @@ import datetime
 import logging
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from wealthdock_server.api.deps import get_current_user
+from wealthdock_server.core.limiter import limiter
 from wealthdock_server.db.models import SyncRecord, SyncState, User
 from wealthdock_server.db.session import get_db
 from wealthdock_server.schemas.sync import (
@@ -100,7 +101,10 @@ async def process_changes(
 
 
 @router.get("", response_model=SyncPayload)
+@limiter.limit("60/minute")
 async def get_sync_state(
+    request: Request,
+    response: Response,
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> SyncPayload:
@@ -113,7 +117,10 @@ async def get_sync_state(
 
 
 @router.post("", response_model=None)
+@limiter.limit("60/minute")
 async def sync(
+    request: Request,
+    response: Response,
     payload_in: dict[str, Any],
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],

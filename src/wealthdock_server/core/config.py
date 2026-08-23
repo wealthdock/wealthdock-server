@@ -7,8 +7,8 @@ from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 if TYPE_CHECKING:
-    EncryptionKeysType = list[str]
     CorsOriginsType = list[str]
+    EncryptionKeysType = list[str]
 else:
     # At runtime the union keeps pydantic-settings from treating these as
     # "complex" fields, which would make it JSON-decode the raw environment
@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     log_level: str = "info"
 
     database_url: str = "postgresql+asyncpg://wealthdock:wealthdock@localhost:5432/wealthdock"
+    redis_url: str | None = None
 
     jwt_secret: str = "change-me-in-production"
     jwt_algorithm: str = "HS256"

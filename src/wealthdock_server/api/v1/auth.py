@@ -3,11 +3,12 @@
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from wealthdock_server.core.limiter import limiter
 from wealthdock_server.core.security import (
     create_access_token,
     get_password_hash,
@@ -24,7 +25,10 @@ DUMMY_HASH = "$2b$12$Ke/xOMv5kCen85Dsbh0xhu9R8a9W8r0k77J3gS4v2X6.F5Y8t5L6O"
 
 
 @router.post("/register", response_model=Token, status_code=status.HTTP_201_CREATED)
+@limiter.limit("5/minute")
 async def register(
+    request: Request,
+    response: Response,
     user_in: UserRegister,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Token:
@@ -65,7 +69,10 @@ async def register(
 
 
 @router.post("/login", response_model=Token)
+@limiter.limit("5/minute")
 async def login(
+    request: Request,
+    response: Response,
     user_in: UserLogin,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Token:
