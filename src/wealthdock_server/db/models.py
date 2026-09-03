@@ -120,6 +120,24 @@ class SyncRecord(Base):
     deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 
+class QuoteCache(Base):
+    """TTL-based cache for market data quotes to reduce provider API calls.
+
+    Rows are considered stale after a TTL window (checked at the query layer,
+    not enforced by the schema); a stale or missing row triggers a fresh
+    provider call, which then upserts this row.
+    """
+
+    __tablename__ = "quote_cache"
+
+    symbol: Mapped[str] = mapped_column(String(20), primary_key=True)
+    asset_class: Mapped[str] = mapped_column(String(20), nullable=False)
+    price: Mapped[float] = mapped_column(nullable=False)
+    fetched_at: Mapped[datetime.datetime] = mapped_column(
+        TZDateTime, default=utcnow, server_default=func.now(), nullable=False
+    )
+
+
 class BankConnection(Base):
     """Database model for storing external bank connections."""
 
